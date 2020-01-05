@@ -43,6 +43,7 @@ class constants:
         exit_k = 27
 
         dice = ord('d')
+        dice_more = ord('f')
 
         m1_k = ord('1')
         m2_k = ord('2')
@@ -90,7 +91,7 @@ class PlantDetector:
         self.c.HSV.high_V = max(self.c.HSV.high_V, self.c.HSV.low_V+1)
         cv.setTrackbarPos(self.c.HSV.high_V_name, self.window1, self.c.HSV.high_V)
 
-    def prepare_plant_collection(self, src = 'multi_plant'):
+    def prepare_plant_collection(self, src = 'multi_plant', labelsrc = 'multi_label'):
         plants = []
         plant_groups = dict()
         files = os.listdir( src )
@@ -109,7 +110,16 @@ class PlantDetector:
                 plant_groups[group_id] = []
             plant_groups[group_id].append(input_im)
 
-        return plants, plant_groups
+        labels = []
+        files = os.listdir( labelsrc )
+        files.sort()
+        for fl in files:
+            input_im = cv.imread(labelsrc + '/' + fl)
+            if ( input_im is None ):
+                exit()
+            labels.append(input_im)
+
+        return plants, plant_groups, labels
 
     def __init__(self, src = 'multi_plant'):
         self.c = constants()
@@ -128,7 +138,7 @@ class PlantDetector:
         cv.createTrackbar(self.c.HSV.low_V_name, self.window1 , self.c.HSV.low_V, self.c.HSV.max_value, self.on_low_V_thresh_trackbar)
         cv.createTrackbar(self.c.HSV.high_V_name, self.window1 , self.c.HSV.high_V,self.c.HSV.max_value, self.on_high_V_thresh_trackbar)
 
-        self.plants, self.plant_groups = self.prepare_plant_collection(src)
+        self.plants, self.plant_groups, self.labels = self.prepare_plant_collection(src)
 
         if True:
             backSub = cv.createBackgroundSubtractorMOG2()
@@ -148,6 +158,7 @@ class PlantDetector:
     def parse(self, auto_inc = False, mode = 0):
         key = 0
         i = 0
+        l_tog = False
 
         while key != self.c.cntr.exit_k:
 
@@ -162,7 +173,6 @@ class PlantDetector:
             _, bgfgSegMarkers, _ = self.HSV_filtering_and_watershed(
                         cv.cvtColor(self.plant_groups[group_id][i % 60], cv.COLOR_GRAY2BGR)
                         )
-
 
             if mode == 5:
                 alt = bgfgSegMarkers
@@ -193,7 +203,10 @@ class PlantDetector:
                 cv.putText(alt, text, (0,20), self.c.asth.font, .5, tcol, 1)
 
             cv.imshow(self.window1, alt)
-            cv.imshow(self.window2, self.plants[i]['p'])
+            if l_tog:
+                cv.imshow(self.window2, self.labels[i])
+            else:
+                cv.imshow(self.window2, self.plants[i]['p'])
 
             key = cv.waitKey(10)
 
@@ -206,18 +219,25 @@ class PlantDetector:
             if key == self.c.cntr.save_all:
                 self.parse(True, mode)
             if key == self.c.cntr.dice:
-                print(self.dicify_summary(self.plants[i]['n']))
+                print(self.dicify_one_dynamic(mask, self.plants[i]['n']))
+            if key == self.c.cntr.dice_more:
+                self.dicify_wrapper(self.plants[i]['n'])
 
             if key == self.c.cntr.m1_k:
                 mode = 1
+                l_tog = False
             elif key == self.c.cntr.m2_k:
                 mode = 2
+                l_tog = True
             elif key == self.c.cntr.m3_k:
                 mode = 3
+                l_tog = False
             elif key == self.c.cntr.m4_k:
                 mode = 4
+                l_tog = False
             elif key == self.c.cntr.m5_k:
                 mode = 5
+                l_tog = False
 
             if auto_inc:
                 i += 1
@@ -260,16 +280,22 @@ class PlantDetector:
 
         return mask, input_im, im_threshold
 
+    def dicify_wrapper(self, image_id):
+        thread = threading.Thread(target = self.dicify_summary, args = (image_id,), daemon = True)
+        thread.start()
+
     def dicify_summary(self, image_id):
-        return f"""
-        Dice values for
+        print(f"""
+        Dice values for {image_id}
             image: {self.dicify_one(image_id)}
 
             plant:
-                mean, max, min
-                {self.dicify_plant()}
-        
-        """
+                mean, min, max
+                {self.dicify_plant(image_id.split('_')[2])}
+
+            dataset:
+                mean, min, max
+                {self.dicify_all()}""")
 
     def dicify_one(self, image_id):
         img = cv.imread(f'multi_label/label_{image_id.split("_", 1)[1]}')
@@ -288,19 +314,36 @@ class PlantDetector:
 
         return dice
 
-    def dicify_plant(self, plant_num):
+    def dicify_one_dynamic(self, mask, image_id):
+        img = cv.imread(f'multi_label/label_{image_id.split("_", 1)[1]}')
+        img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        _, gt = cv.threshold(img, 1, 255, cv.THRESH_BINARY)
+    
+        img = cv.cvtColor(mask, cv.COLOR_BGR2GRAY)
+        _, rt = cv.threshold(img, 1, 255, cv.THRESH_BINARY)
+    
+        k = 255
+    
+        dice = np.sum(
+            rt[gt == k]) * 2.0 / (np.sum(rt[rt == k]) + np.sum(gt[gt == k])
+            )
+
+        return dice
+
+    def dicify_plant(self, plant_id):
         vals = []
         for im_data in [
             t for t in self.plants
-            if t['n'].split('_')[2] == plant_num 
+            if t['n'].split('_')[2] == plant_id 
             ]:
-            vals.append(self.dicify_one(
-                f'formatted/ws_mask/{im_data["n"]}',
-                f'multi_label/label_{im_data["n"].split("_", 1)[1]}'
-            ))
+            vals.append(self.dicify_one(im_data['n']))
+        return [np.mean(vals), min(vals), max(vals)]
 
-    def dicify_all():
-        pass
+    def dicify_all(self):
+        vals = []
+        for im_data in self.plants:
+            vals.append(self.dicify_one(im_data['n']))
+        return [np.mean(vals), min(vals), max(vals)]
 
 # Main
 
