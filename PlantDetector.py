@@ -1,16 +1,19 @@
+# http://limu.ait.kyushu-u.ac.jp/~agri/komatsuna/
+
 import cv2 as cv
 import numpy as np
 import os
-import matplotlib.pyplot as plot
 import copy
-
+from random import randint, seed
+from pathlib import Path 
+import threading
 
 class constants:
     class HSV:
         max_value = 255
         max_value_H = 360//2
 
-        low_H = 30
+        low_H = 40
         low_S = 30
         low_V = 30
         high_H = 75
@@ -30,11 +33,16 @@ class constants:
 
     class asth:
         font = cv.FONT_HERSHEY_SIMPLEX
+        text = False
 
     class cntr:
         next_k = ord('m')
         prev_k = ord('n')
+        save = ord('s')
+        save_all = ord('z')
         exit_k = 27
+
+        dice = ord('d')
 
         m1_k = ord('1')
         m2_k = ord('2')
@@ -42,9 +50,17 @@ class constants:
         m4_k = ord('4')
         m5_k = ord('5')
 
-    class flow:
-        HSV_filtering_and_watershed = True
-        bg_fg_segm = False
+        modes = {
+            0: 'original',
+            1: 'hsv_filter',
+            2: 'ws_mask',
+            3: 'ws_mask_bg',
+            4: 'fgbg_segm',
+            5: 'ws_fgbg_segm'
+        }
+
+    class xtra:
+        disco = False
 
 
 class PlantDetector:
@@ -88,9 +104,10 @@ class PlantDetector:
                 'p': input_im,
                 'n': fl
             })
-            if fl.split('_')[2] not in plant_groups:
-                plant_groups[fl.split('_')[2]] = []
-            plant_groups[fl.split('_')[2]].append(input_im)
+            group_id = f'{fl.split("_")[1]}{fl.split("_")[2]}'
+            if group_id not in plant_groups:
+                plant_groups[group_id] = []
+            plant_groups[group_id].append(input_im)
 
         return plants, plant_groups
 
@@ -113,10 +130,7 @@ class PlantDetector:
 
         self.plants, self.plant_groups = self.prepare_plant_collection(src)
 
-        if self.c.flow.bg_fg_segm is False:
-            return
-
-        if False:
+        if True:
             backSub = cv.createBackgroundSubtractorMOG2()
         else:
             backSub = cv.createBackgroundSubtractorKNN()
@@ -130,53 +144,53 @@ class PlantDetector:
             for i, image in enumerate(self.plant_groups[key]):
                 fgMask = backSub.apply(image)
                 self.plant_groups[key][i] = fgMask
-            # self.plant_groups[key] = backSub.getBackgroundImage()
 
-    def parse(self):
+    def parse(self, auto_inc = False, mode = 0):
         key = 0
-        mode = 0
         i = 0
 
         while key != self.c.cntr.exit_k:
-            
-            image = copy.deepcopy(self.plants[i]['p'])
 
-            if self.c.flow.HSV_filtering_and_watershed:
-                if not self.c.flow.bg_fg_segm:
-                    wt_image, markers, im_threshold = self.HSV_filtering_and_watershed(image)
-                else:
-                    wt_image, markers, im_threshold = self.HSV_filtering_and_watershed(
-                        cv.cvtColor(self.plant_groups[self.plants[i]['n'].split('_')[2]][i % 60], cv.COLOR_GRAY2BGR)
+            if auto_inc and i == len(self.plants):
+                break
+
+            image = copy.deepcopy(self.plants[i]['p'])
+            group_id = f'{self.plants[i]["n"].split("_")[1]}{self.plants[i]["n"].split("_")[2]}'
+
+            mask, markers, im_threshold = self.HSV_filtering_and_watershed(image)
+                
+            _, bgfgSegMarkers, _ = self.HSV_filtering_and_watershed(
+                        cv.cvtColor(self.plant_groups[group_id][i % 60], cv.COLOR_GRAY2BGR)
                         )
 
-            if mode == 5 and self.c.flow.bg_fg_segm:
-                alt = image
-                mask = self.plant_groups[self.plants[i]['n'].split('_')[2]]
-                alt[mask == 255] = [0, 0, 0]
-            elif mode == 4 and self.c.flow.bg_fg_segm:
-                alt = self.plant_groups[self.plants[i]['n'].split('_')[2]][i % 60]
-                text = f'Fore/Background segmentation {self.plants[i]["n"]}'
-                tcol = (255,255,255)
-            elif mode == 3 and self.c.flow.HSV_filtering_and_watershed:
-                alt = markers
-                text = f'Watershed algorithm areas {self.plants[i]["n"]}'
-                tcol = (0, 0, 0)
 
-            elif mode == 2 and self.c.flow.HSV_filtering_and_watershed:
-                alt = wt_image
-                text = f'Watershed algorithm borders {self.plants[i]["n"]}'
+            if mode == 5:
+                alt = bgfgSegMarkers
+                text = f'Watershed new areas w/ fg/bg segm. {self.plants[i]["n"]}'
+                tcol = (255,255,255)
+            elif mode == 4:
+                alt = copy.deepcopy(self.plant_groups[group_id][i % 60])
+                text = f'FG/BG segmentation {self.plants[i]["n"]}'
+                tcol = (255,255,255)
+            elif mode == 3:
+                alt = markers
+                text = f'Watershed algorithm areas w/ bg {self.plants[i]["n"]}'
                 tcol = (0, 0, 0)
-            elif mode == 1 and self.c.flow.HSV_filtering_and_watershed:
+            elif mode == 2:
+                alt = mask
+                text = f'Watershed algorithm areas bare {self.plants[i]["n"]}'
+                tcol = (255, 255, 255)
+            elif mode == 1:
                 alt = im_threshold
                 text = f'HSV inRange threshold {self.plants[i]["n"]}'
                 tcol = (255,255,255)
             else:
-                alt = self.plants[i]['p']
+                alt = copy.deepcopy(self.plants[i]['p'])
                 text = f'Original {self.plants[i]["n"]}'
                 tcol = (0, 0, 0)
 
-            cv.putText(alt, text, (0,20), self.c.asth.font, .5, tcol, 1)
-            cv.putText(self.plants[i]['p'], 'Original', (0,20), self.c.asth.font, .5, (0,0,0), 1)
+            if self.c.asth.text:
+                cv.putText(alt, text, (0,20), self.c.asth.font, .5, tcol, 1)
 
             cv.imshow(self.window1, alt)
             cv.imshow(self.window2, self.plants[i]['p'])
@@ -187,6 +201,12 @@ class PlantDetector:
                 i -= 1
             if key == self.c.cntr.next_k and i < len(self.plants) - 1:
                 i += 1
+            if key == self.c.cntr.save or auto_inc:
+                self.save_one(mode, alt, self.plants[i]["n"])
+            if key == self.c.cntr.save_all:
+                self.parse(True, mode)
+            if key == self.c.cntr.dice:
+                print(self.dicify_summary(self.plants[i]['n']))
 
             if key == self.c.cntr.m1_k:
                 mode = 1
@@ -198,6 +218,13 @@ class PlantDetector:
                 mode = 4
             elif key == self.c.cntr.m5_k:
                 mode = 5
+
+            if auto_inc:
+                i += 1
+
+    def save_one(self, mode, image, filename):
+        Path(f'formatted/{self.c.cntr.modes[mode]}').mkdir(parents=True, exist_ok=True)
+        cv.imwrite(f'formatted/{self.c.cntr.modes[mode]}/{filename}', image)
 
     def HSV_filtering_and_watershed(self, input_im):
         
@@ -214,29 +241,66 @@ class PlantDetector:
         sure_fg = np.uint8(sure_fg)
         unknown = cv.subtract(sure_bg,sure_fg)
 
-        # Marker labelling
         _, markers = cv.connectedComponents(sure_fg)
-        # Add one to all labels so that sure background is not 0, but 1
-        markers = markers+1
-        # Now, mark the region of unknown with zero
-        markers[unknown==255] = 0
+        markers = markers + 1
+        markers[unknown == 255] = 0
 
         markers = cv.watershed(input_im,markers)
-        input_im[markers == -1] = [255,0,0]
-
-        fig = plot.figure()
-        plot.imshow(markers)
-        fig.canvas.draw()
-
-        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8,
-                sep='')
-        img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        markers = cv.cvtColor(img,cv.COLOR_RGB2BGR)
-
-        plot.close(fig)
         
-        return input_im, markers, im_threshold
+        input_im[markers == -1] = [255,0,0]
+        for i in range(2, markers.max() + 1):
+            input_im[markers == i] = [
+                randint(0, 255), randint(0, 255), randint(0, 255)
+                ] if self.c.xtra.disco else [
+                    (40 + i * 40) % 255, (i * 40) % 255, (50 + i * 40) % 255
+                ]
+        
+        mask = copy.deepcopy(input_im)
+        mask[markers < 2] = [0, 0, 0]
 
+        return mask, input_im, im_threshold
+
+    def dicify_summary(self, image_id):
+        return f"""
+        Dice values for
+            image: {self.dicify_one(image_id)}
+
+            plant:
+                mean, max, min
+                {self.dicify_plant()}
+        
+        """
+
+    def dicify_one(self, image_id):
+        img = cv.imread(f'multi_label/label_{image_id.split("_", 1)[1]}')
+        img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        _, gt = cv.threshold(img, 1, 255, cv.THRESH_BINARY)
+    
+        img = cv.imread(f'formatted/ws_mask/{image_id}')
+        img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        _, rt = cv.threshold(img, 1, 255, cv.THRESH_BINARY)
+    
+        k = 255
+    
+        dice = np.sum(
+            rt[gt == k]) * 2.0 / (np.sum(rt[rt == k]) + np.sum(gt[gt == k])
+            )
+
+        return dice
+
+    def dicify_plant(self, plant_num):
+        vals = []
+        for im_data in [
+            t for t in self.plants
+            if t['n'].split('_')[2] == plant_num 
+            ]:
+            vals.append(self.dicify_one(
+                f'formatted/ws_mask/{im_data["n"]}',
+                f'multi_label/label_{im_data["n"].split("_", 1)[1]}'
+            ))
+
+    def dicify_all():
+        pass
 
 # Main
 

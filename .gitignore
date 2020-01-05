@@ -1,3 +1,5 @@
 venv/
 multi_plant/
+multi_label/
+formatted/
 *.vscode
