@@ -208,7 +208,7 @@ class PlantDetector:
         cv.namedWindow(self.window1)
         cv.namedWindow(self.window2)
 
-        cv.moveWindow(self.window2, 800, 0)
+        cv.moveWindow(self.window2, 800, 100)
 
         cv.createTrackbar(
             self.c.HSV.low_H_name, self.window1, self.c.HSV.low_H,
@@ -244,9 +244,9 @@ class PlantDetector:
                 self.plant_groups[key][i] = fgMask
 
     def on_low_H_thresh_trackbar(self, val):
-        self.c.HSV.prepare_plant_collectionow_H = val
-        self.c.HSV.prepare_plant_collectionow_H = min(self.c.HSV.high_H-1, self.c.HSV.low_H)
-        cv.setTrackprepare_plant_collectionarPos(
+        self.c.HSV.low_H = val
+        self.c.HSV.low_H = min(self.c.HSV.high_H-1, self.c.HSV.low_H)
+        cv.setTrackbarPos(
             self.c.HSV.low_H_name, self.window1, self.c.HSV.low_H)
 
     def on_high_H_thresh_trackbar(self, val):
