@@ -9,105 +9,7 @@ import threading  # for deamon processing
 from pathlib import Path  # for directory information
 import os  # for directory information
 
-
-class constants:
-    """Class of constants for each component of detector
-    """
-
-    class bgsub:
-        """Background subtraction/segmentation
-
-        mod [str] the segmentation model (MOG2, KNN, GMG)
-        """
-        mod = 'MOG2'
-
-    class HSV:
-        """HSV inRange filtering
-
-        maximum values and initial values
-        """
-        max_value = 255
-        max_value_H = 360//2
-
-        low_H = 40
-        low_S = 30
-        low_V = 30
-        high_H = 75
-        high_S = 255
-        high_V = 255
-
-        low_H_name = 'Low H'
-        low_S_name = 'Low S'
-        low_V_name = 'Low V'
-        high_H_name = 'High H'
-        high_S_name = 'High S'
-        high_V_name = 'High V'
-
-    class window:
-        """Window control
-
-        names of windows
-        """
-        window1 = 'Altered'
-        window2 = 'Original'
-
-    class asth:
-        """Aesthetics
-
-        font [enum int] font used for description
-        text [bool] should text be imprinted on image?
-        """
-        font = cv.FONT_HERSHEY_SIMPLEX
-        text = False
-
-    class cntr:
-        """Controls for program
-
-        next_k - next image
-        prev_k - prev image
-        save - save single image (in mode)
-        save_all - save all images (in mode)
-        exit_k - exit the program
-
-        dice - calculate dice value
-        dice_more - show all dice values based on dataset
-
-        m1_k etc. - mode selection
-
-        modes [dict] dictionary with mode names
-        """
-        next_k = ord('m')
-        prev_k = ord('n')
-        save = ord('s')
-        save_all = ord('z')
-        exit_k = 27
-
-        dice = ord('d')
-        dice_more = ord('f')
-
-        m1_k = ord('1')
-        m2_k = ord('2')
-        m3_k = ord('3')
-        m4_k = ord('4')
-        m5_k = ord('5')
-
-        modes = {
-            0: 'original',
-            1: 'hsv_filter',
-            2: 'ws_mask',
-            3: 'ws_mask_bg',
-            4: 'fgbg_segm',
-            5: 'ws_fgbg_segm'
-        }
-
-    class xtra:
-        """Ends and odds
-
-        disco [bool] random colors for masks on each loop?
-        show_save_all [bool] run saving all in foreground?
-        """
-        disco = False
-        show_save_all = True
+from constants import constants  # constants
 
 
 class PlantDetector:
@@ -198,6 +100,7 @@ class PlantDetector:
 
     dicify_all(self) [mean, min, max]
         returns mean, min and max dice values for images in dataset
+        and for each plant
     """
 
     def __init__(self, src='multi_plant', labels='multi_label'):
@@ -208,7 +111,7 @@ class PlantDetector:
         cv.namedWindow(self.window1)
         cv.namedWindow(self.window2)
 
-        cv.moveWindow(self.window2, 800, 100)
+        cv.moveWindow(self.window2, 550, 90)
 
         cv.createTrackbar(
             self.c.HSV.low_H_name, self.window1, self.c.HSV.low_H,
@@ -411,7 +314,7 @@ class PlantDetector:
         # source https://docs.opencv.org/master/d3/db4/tutorial_py_watershed.html
 
         kernel = np.ones((3, 3), np.uint8)
-        opening = cv.morphologyEx(im_threshold, cv.MORPH_OPEN, kernel, iterations=2)
+        opening = cv.morphologyEx(im_threshold, cv.MORPH_OPEN, kernel, iterations=5)
 
         sure_bg = cv.dilate(opening, kernel, iterations=7)
 
@@ -445,19 +348,12 @@ class PlantDetector:
         thread.start()
 
     def dicify_summary(self, image_id):
-        print(f"""
-        Dice values for {image_id}
-            image: {self.dicify_one(image_id)}
-
-            plant:
-                mean, min, max
-                {self.dicify_plant(image_id.split('_')[2])}
-
-            dataset:
-                mean, min, max
-                {self.dicify_all()}""")
+        print(self.dicify_all())
 
     def dicify_one(self, image_id):
+
+        # Source: https://github.com/Kornelos/CV_MINI_1/blob/master/process_plants.py
+
         img = cv.imread(f'multi_label/label_{image_id.split("_", 1)[1]}')
         img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
         _, gt = cv.threshold(img, 1, 255, cv.THRESH_BINARY)
@@ -496,10 +392,18 @@ class PlantDetector:
         return [np.mean(vals), min(vals), max(vals)]
 
     def dicify_all(self):
-        vals = []
-        for im_data in self.plants:
-            vals.append(self.dicify_one(im_data['n']))
-        return [np.mean(vals), min(vals), max(vals)]
+        means = []
+        mins = []
+        maxs = []
+        summ = "id | mean  | min   | max"
+        for i in range(0, 5):
+            plant = self.dicify_plant(f'0{str(i)}')
+            means.append(plant[0])
+            mins.append(plant[1])
+            maxs.append(plant[2])
+            summ += f'\n0{str(i)} | {round(plant[0], 3)} | {round(plant[1], 3)} | {round(plant[2], 3)}'
+        summ += f'\nsm | {round(np.mean(means), 3)} | {round(min(mins), 3)} | {round(max(maxs), 3)}'
+        return summ
 
 
 # Main

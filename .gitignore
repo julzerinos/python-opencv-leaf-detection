@@ -3,3 +3,4 @@ multi_plant/
 multi_label/
 formatted/
 *.vscode
+__pycache__/
